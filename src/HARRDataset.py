@@ -7,8 +7,10 @@ from scipy.io import arff
 
 
 class DataColumns:
-    def __init__(self, numerical_columns, categorical_columns, y_true):
+    def __init__(self, numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true):
         self.numerical_columns = numerical_columns
+        self.nominal_columns = nominal_columns
+        self.ordinal_columns = ordinal_columns
         self.categorical_columns = categorical_columns
         self.y_true = y_true
 
@@ -56,7 +58,7 @@ class HARRDataSet:
         self.all_data_2['T3'] = self.get_T3()
         self.all_data_2['HR'] = self.get_HR()
         self.all_data_2['LG'] = self.get_LG()
-        self.all_data_2['MR'] = self.get_MR()
+        # self.all_data_2['MR'] = self.get_MR()
         self.all_data_2['LE'] = self.get_LE()
         self.all_data_2['SW'] = self.get_SW()
 
@@ -73,13 +75,15 @@ class HARRDataSet:
         )
         DS[0] = DS[0].astype(str).str.replace(',', '.').astype(float)
 
-        numerical_columns = DS.columns[0]
+        numerical_columns = DS.columns[0: 1]
+        nominal_columns = DS.columns[1: 6]
+        ordinal_columns = []
         categorical_columns = DS.columns[1: 6]
         y1 = DS[DS.columns[6]]
         y2 = DS[DS.columns[7]]
         y_true = np.where((y1 == 'no') & (y2 == 'no'), 0, 1)
 
-        DS_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        DS_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.DS = DS
 
@@ -90,10 +94,12 @@ class HARRDataSet:
         HF = pd.read_csv(HF_file)
 
         numerical_columns = HF.columns[: 7]
+        nominal_columns = HF.columns[7: 12]
+        ordinal_columns = HF.columns[12: 14]
         categorical_columns = HF.columns[7: 12]
         y_true = HF[HF.columns[12]]
 
-        HF_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        HF_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.HF = HF
 
@@ -118,9 +124,11 @@ class HARRDataSet:
         AA = AA[numerical_cols + categorical_cols + [label_col]]
 
         numerical_columns = AA.columns[0: 2]
+        nominal_columns = AA.columns[2:9]
+        ordinal_columns = []
         categorical_columns = AA.columns[2: 9]
         y_true = AA[AA.columns[9]]
-        AA_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        AA_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.AA = AA
 
@@ -143,10 +151,12 @@ class HARRDataSet:
         AP = AP[selected_cols]
 
         numerical_columns = AP.columns[0: 2]
+        nominal_columns = AP.columns[2:8]  # TR, VR, SUR1, SUR2, SUR3, UR
+        ordinal_columns = AP.columns[8:14]
         categorical_columns = AP.columns[2: 14]
         y_true = AP[label_col_name]
 
-        AP_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        AP_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.AP = AP
 
@@ -169,10 +179,14 @@ class HARRDataSet:
         DT.columns = feature_names
 
         numerical_columns = DT.columns[0: 1]
+        nominal_columns = [DT.columns[12]]  # 'Cat_11'
+
+        # 其余 Categorical 都是 Ordinal
+        ordinal_columns = [c for c in DT.columns[1:34] if c != DT.columns[12]]
         categorical_columns = DT.columns[1: 34]
         y_true = DT[DT.columns[34]]
 
-        DT_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        DT_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.DT = DT
 
@@ -189,10 +203,13 @@ class HARRDataSet:
         AC = AC[num_indices + cat_indices + label_index]
 
         numerical_columns = AC.columns[0: 6]
+        nominal_columns = [AC.columns[8]]
+
+        ordinal_columns = [c for c in AC.columns[6:14] if c != AC.columns[8]]
         categorical_columns = AC.columns[6: 14]
         y_true = AC[AC.columns[14]]
 
-        AC_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        AC_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.AC = AC
 
@@ -208,10 +225,12 @@ class HARRDataSet:
         SB = SB[new_cols]
 
         numerical_columns = []
+        nominal_columns = SB.columns[0:35]
+        ordinal_columns = []
         categorical_columns = SB.columns[0: 35]
         y_true = SB[SB.columns[35]]
 
-        SB_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        SB_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.SB = SB
 
@@ -222,11 +241,13 @@ class HARRDataSet:
         SF = pd.read_csv(SF_file, sep='\s+', skiprows=1, header=None)
 
         numerical_columns = []
+        nominal_columns = SF.columns[0:9]
+        ordinal_columns = []
         categorical_columns = SF.columns[0: 9]
 
         y_true = SF[SF.columns[10]]
 
-        SF_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        SF_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.SF = SF
 
@@ -237,10 +258,12 @@ class HARRDataSet:
         T3 = pd.read_csv(T3_file, header=None)
 
         numerical_columns = []
+        nominal_columns = T3.columns[0:9]
+        ordinal_columns = []
         categorical_columns = T3.columns[0: 9]
         y_true = T3[T3.columns[9]]
 
-        T3_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        T3_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.T3 = T3
 
@@ -253,10 +276,12 @@ class HARRDataSet:
         HR = HR.iloc[:, 1:6]
 
         numerical_columns = []
+        nominal_columns = [HR.columns[0], HR.columns[3]]
+        ordinal_columns = [HR.columns[1], HR.columns[2]]
         categorical_columns = HR.columns[0: 4]
         y_true = HR[HR.columns[4]]
 
-        HR_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        HR_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.HR = HR
 
@@ -273,10 +298,16 @@ class HARRDataSet:
         LG.columns = range(LG.shape[1])
 
         numerical_columns = []
+        ord_indices = [10, 11, 17]
+        ordinal_columns = LG.columns[ord_indices]
+
+        # 其余为 Nominal
+        nom_indices = [i for i in range(18) if i not in ord_indices]
+        nominal_columns = LG.columns[nom_indices]
         categorical_columns = LG.columns[0: 18]
         y_true = LG[LG.columns[18]]
 
-        LG_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        LG_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.LG = LG
 
@@ -299,10 +330,12 @@ class HARRDataSet:
         MR.columns = range(MR.shape[1])
 
         numerical_columns = []
+        nominal_columns = MR.columns[0:20]
+        ordinal_columns = []
         categorical_columns = MR.columns[0: 20]
         y_true = MR[MR.columns[20]]
 
-        MR_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        MR_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.MR = MR
 
@@ -316,10 +349,12 @@ class HARRDataSet:
         LE = pd.DataFrame(data)
 
         numerical_columns = []
+        nominal_columns = []
+        ordinal_columns = LE.columns[0:4]
         categorical_columns = LE.columns[0: 4]
         y_true = LE[LE.columns[4]]
 
-        LE_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        LE_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.LE = LE
 
@@ -333,14 +368,48 @@ class HARRDataSet:
         SW = pd.DataFrame(data)
 
         numerical_columns = []
+        nominal_columns = []
+        ordinal_columns = SW.columns[0:10]
         categorical_columns = SW.columns[0: 10]
         y_true = SW[SW.columns[10]]
 
-        SW_columns = DataColumns(numerical_columns, categorical_columns, y_true)
+        SW_columns = DataColumns(numerical_columns, nominal_columns, ordinal_columns, categorical_columns, y_true)
 
         self.SW = SW
 
         return SW, SW_columns
+
+    def get_dataset_by_name(self, ds_name):
+        if ds_name == 'DS':
+            return self.get_DS()
+        elif ds_name == 'HF':
+            return self.get_HF()
+        elif ds_name == 'AA':
+            return self.get_AA()
+        elif ds_name == 'AP':
+            return self.get_AP()
+        elif ds_name == 'DT':
+            return self.get_DT()
+        elif ds_name == 'AC':
+            return self.get_AC()
+        elif ds_name == 'SB':
+            return self.get_SB()
+        elif ds_name == 'SF':
+            return self.get_SF()
+        elif ds_name == 'T3':
+            return self.get_T3()
+        elif ds_name == 'HR':
+            return self.get_HR()
+        elif ds_name == 'LG':
+            return self.get_LG()
+        elif ds_name == 'MR':
+            return self.get_MR()
+        elif ds_name == 'LE':
+            return self.get_LE()
+        elif ds_name == 'SW':
+            return self.get_SW()
+        else:
+            raise ValueError(f"Unknown dataset name: {ds_name}")
 
 
 # 测试

@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering
 from kmodes.kprototypes import KPrototypes
 from kmodes.kmodes import KModes
 from scipy.stats import entropy
+from sklearn.ensemble import RandomTreesEmbedding
+from sklearn.metrics.pairwise import rbf_kernel
 
 from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
 from scipy.spatial.distance import pdist, squareform
@@ -428,5 +430,199 @@ class Wrapper_HOD:
             linkage='average'
         )
         labels = model.fit_predict(final_dist)
+
+        return labels, None
+
+
+class Wrapper_GWD:
+    """
+    对应论文中的 GWD (Gower's Distance)。
+    实现逻辑：
+    1. Gower 距离是不同属性距离的加权平均。
+    2. 数值属性：|x_i - x_j| / (max - min) (归一化的曼哈顿距离)。
+    3. 分类属性：汉明距离 (0或1)。
+    4. 聚类：Agglomerative Clustering。
+    """
+
+    def __init__(self, data, columns, n_clusters=2):
+        self.raw_data = data.copy()
+        self.num_cols = to_list(columns.numerical_columns)
+        self.cat_cols = to_list(columns.categorical_columns)
+        self.k = n_clusters
+
+        # 只保留特征列
+        self.features = self.num_cols + self.cat_cols
+        self.data = self.raw_data[self.features].copy()
+
+    def fit(self):
+        n_samples = self.data.shape[0]
+        n_features = len(self.features)
+
+        # --- 1. 数值部分 (Normalized Manhattan) ---
+        if len(self.num_cols) > 0:
+            X_num = self.data[self.num_cols].astype(float)
+            # 计算每一列的 Range (max - min)
+            ranges = np.ptp(X_num.values, axis=0)  # Peak to peak
+            # 防止除以0
+            ranges[ranges == 0] = 1.0
+
+            # Gower 数值部分计算: Sum(|diff|) / Range
+            # 我们先除以 range 归一化，然后算 cityblock
+            X_num_norm = X_num / ranges
+
+            # pdist cityblock 默认是 sum(|x - y|)，正是我们需要的分子求和
+            dist_num = squareform(pdist(X_num_norm, metric='cityblock'))
+        else:
+            dist_num = np.zeros((n_samples, n_samples))
+
+        # --- 2. 分类部分 (Hamming) ---
+        if len(self.cat_cols) > 0:
+            enc = OrdinalEncoder()
+            X_cat = enc.fit_transform(self.data[self.cat_cols].astype(str))
+
+            # pdist 'hamming' 返回的是不匹配的比例 (diff_count / n_cat_cols)
+            # 我们需要的是不匹配的个数 (diff_count)
+            # 所以乘以 len(cat_cols)
+            dist_cat = squareform(pdist(X_cat, metric='hamming')) * len(self.cat_cols)
+        else:
+            dist_cat = np.zeros((n_samples, n_samples))
+
+        # --- 3. 计算平均距离 ---
+        # Gower = (Sum_Num_Dist + Sum_Cat_Dist) / Total_Features
+        gower_dist_matrix = (dist_num + dist_cat) / n_features
+
+        # --- 4. 聚类 ---
+        model = AgglomerativeClustering(
+            n_clusters=self.k,
+            metric='precomputed',
+            linkage='average'
+        )
+        labels = model.fit_predict(gower_dist_matrix)
+
+        return labels, None
+
+
+class Wrapper_GBD:
+    """
+    对应论文中的 GBD (Graph-Based Distance)。
+    实现逻辑：
+    GBD 的核心是将数据映射为图结构。
+    1. 构建相似度图 (Affinity Matrix)。
+       - 数值部分：使用 RBF 核 (高斯核) 计算相似度。
+       - 分类部分：使用 1 - Hamming 距离作为相似度。
+    2. 使用 Spectral Clustering (谱聚类)。
+       谱聚类本质上就是在图的拉普拉斯矩阵上进行特征分解，是标准的 Graph-Based 方法。
+    """
+
+    def __init__(self, data, columns, n_clusters=2):
+        self.raw_data = data.copy()
+        self.num_cols = to_list(columns.numerical_columns)
+        self.cat_cols = to_list(columns.categorical_columns)
+        self.k = n_clusters
+        self.features = self.num_cols + self.cat_cols
+        self.data = self.raw_data[self.features].copy()
+
+    def fit(self):
+        n_samples = self.data.shape[0]
+
+        # --- 1. 计算相似度矩阵 (Affinity) ---
+
+        # 数值相似度 (RBF Kernel)
+        if len(self.num_cols) > 0:
+            scaler = MinMaxScaler()
+            X_num = scaler.fit_transform(self.data[self.num_cols])
+            # gamma 默认 1.0/n_features，这里简单设为 1.0
+            affinity_num = rbf_kernel(X_num, gamma=1.0)
+        else:
+            affinity_num = np.ones((n_samples, n_samples))
+
+        # 分类相似度 (Kernelized Hamming)
+        if len(self.cat_cols) > 0:
+            enc = OrdinalEncoder()
+            X_cat = enc.fit_transform(self.data[self.cat_cols].astype(str))
+
+            # Hamming 距离 (0~1)
+            dist_cat_norm = squareform(pdist(X_cat, metric='hamming'))
+            # 转换为相似度: 1 - distance
+            # 并使用指数核稍微平滑一下，模拟图的连接强度
+            affinity_cat = np.exp(-dist_cat_norm)
+        else:
+            affinity_cat = np.ones((n_samples, n_samples))
+
+        # 融合相似度 (元素积，表示两个样本必须在数值和分类上都相似才算相似)
+        # 也可以用加权和，但在图构建中乘积往往能产生更清晰的连通分量
+        final_affinity = affinity_num * affinity_cat
+
+        # --- 2. 谱聚类 ---
+        # affinity='precomputed' 表示输入的是相似度矩阵
+        model = SpectralClustering(
+            n_clusters=self.k,
+            affinity='precomputed',
+            random_state=42,
+            n_init=10
+        )
+        labels = model.fit_predict(final_affinity)
+
+        return labels, None
+
+
+class Wrapper_FBD:
+    """
+    对应论文中的 FBD (Forest-Based Distance)。
+    实现逻辑：
+    利用无监督随机森林 (Random Trees Embedding) 将数据映射到高维稀疏叶子节点空间。
+    1. 数据编码：分类变量 One-Hot，数值变量保持。
+    2. 随机树嵌入：训练森林，获取每个样本落在哪些叶子节点。
+    3. 距离计算：在叶子节点空间计算 Cosine 距离。
+    4. 聚类：Agglomerative Clustering。
+    """
+
+    def __init__(self, data, columns, n_clusters=2):
+        self.raw_data = data.copy()
+        self.num_cols = to_list(columns.numerical_columns)
+        self.cat_cols = to_list(columns.categorical_columns)
+        self.k = n_clusters
+        self.features = self.num_cols + self.cat_cols
+        self.data = self.raw_data[self.features].copy()
+
+    def fit(self):
+        # 1. 预处理 (Random Forest 需要数值输入)
+        # 数值列归一化
+        if len(self.num_cols) > 0:
+            scaler = MinMaxScaler()
+            self.data[self.num_cols] = scaler.fit_transform(self.data[self.num_cols])
+
+        # 分类列 One-Hot (树模型可以直接处理 LabelEncode，但 OneHot 更能捕捉无序关系)
+        if len(self.cat_cols) > 0:
+            X_input = pd.get_dummies(self.data, columns=self.cat_cols, dtype=int)
+        else:
+            X_input = self.data
+
+        # 【关键修复】强制将所有列名转换为字符串
+        # 解决 TypeError: Feature names ... ['int', 'str']
+        X_input.columns = X_input.columns.astype(str)
+
+        # 2. 随机树嵌入 (Forest Embedding)
+        # 将样本映射到高维稀疏特征 (叶子索引)
+        hasher = RandomTreesEmbedding(
+            n_estimators=50,  # 树的数量
+            max_depth=5,  # 树深
+            random_state=42
+        )
+        # X_transformed 是一个稀疏矩阵，表示样本落入了哪些叶子
+        X_transformed = hasher.fit_transform(X_input)
+
+        # 3. 计算距离
+        # 在嵌入空间计算 Cosine 距离 (Forest Distance 的一种标准形式)
+        # 两个样本落在相同的叶子越多，Cosine Similarity 越大，Cosine Distance 越小
+        dist_matrix = squareform(pdist(X_transformed.toarray(), metric='cosine'))
+
+        # 4. 聚类
+        model = AgglomerativeClustering(
+            n_clusters=self.k,
+            metric='precomputed',
+            linkage='average'
+        )
+        labels = model.fit_predict(dist_matrix)
 
         return labels, None

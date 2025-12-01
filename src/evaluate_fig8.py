@@ -90,7 +90,7 @@ def run_all_experiments():
     }
 
     results = {}
-    n_runs = 5  # 为快速演示设为5次，正式复现请用20
+    n_runs = 20  # 为快速演示设为5次，正式复现请用20
 
     print(f"{'=' * 60}\nRunning all experiments (n_runs={n_runs})\n{'=' * 60}")
 
@@ -251,7 +251,7 @@ def plot_ablation_comparison(data):
     # 调整子图间距
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     # 保存图片（可选，建议保存为高分辨率格式）
-    plt.savefig('ablation_experiment_results.png', dpi=300, bbox_inches='tight')
+    plt.savefig('../outputs/Figure8.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 
