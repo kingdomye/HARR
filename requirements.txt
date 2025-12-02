@@ -1,3 +1,5 @@
+seaborn
+tqdm
 matplotlib
 joblib
 numpy~=2.0.2

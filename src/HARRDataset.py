@@ -58,7 +58,7 @@ class HARRDataSet:
         self.all_data_2['T3'] = self.get_T3()
         self.all_data_2['HR'] = self.get_HR()
         self.all_data_2['LG'] = self.get_LG()
-        # self.all_data_2['MR'] = self.get_MR()
+        self.all_data_2['MR'] = self.get_MR()
         self.all_data_2['LE'] = self.get_LE()
         self.all_data_2['SW'] = self.get_SW()
 

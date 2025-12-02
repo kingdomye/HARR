@@ -174,7 +174,7 @@ def generate_table4_parallel():
     df_table4 = pd.DataFrame(table_data, index=TABLE4_DATASET_NAMES).T
     print(df_table4)
 
-    output_file = '../outputs/Table4_Result_Parallel.csv'
+    output_file = '../outputs/Table4_Result（HARR_v3+MR）.csv'
     df_table4.to_csv(output_file, encoding='utf-8-sig')
     print(f"\n结果已保存至 {output_file}")
 

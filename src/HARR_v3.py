@@ -298,6 +298,103 @@ class HARR:
 
         return Q, weights
 
+    def calculate_Z(self, Q, M, weights):
+        """
+        计算所有点到簇中心的加权距离 (Z)
+        """
+        n_samples, n_attributes = self.X_encoded.shape
+        Z = np.zeros(n_samples)
+        for j in range(self.n_clusters):
+            diff = np.abs(self.X_encoded.values - M[j])
+            Z[Q == j] = np.sum(diff[Q == j] * weights[j], axis=1)
+        # 返回平均值
+        Z_avg = np.mean(Z)
+
+        return Z_avg
+
+    def fitV_with_history(self, max_iter=100, epsilon=1e-6):
+        Q_history = []
+        W_history = []
+        Z_history = []      # 所有点到簇中心距离
+
+        if self.X_encoded is None:
+            raise ValueError("X_encoded is None. Please preprocess the data first.")
+
+        n_samples, n_attributes = self.X_encoded.shape
+        X = self.X_encoded.values
+        M, _ = kmeans_plusplus(self.X_encoded.values, self.n_clusters)
+
+        weights = np.ones(n_attributes) / n_attributes
+        Q = np.zeros(n_samples)
+        Q_prime = np.zeros(n_samples)  # 用于判定 Step 3 收敛
+        Q_double_prime = np.zeros(n_samples)  # 用于判定整体收敛
+
+        cur_step = 3
+        iteration_counter = 0
+
+        while cur_step != -1 and iteration_counter < max_iter:
+            iteration_counter += 1
+            Q_history.append(Q.copy())
+            W_history.append(weights.copy())
+            Z_history.append(self.calculate_Z(Q, M, weights))
+
+            # =======================
+            # Step 3: 固定M、w，更新簇标签Q (Eq. 1)
+            # =======================
+            if cur_step == 3:
+                dist_matrix = np.zeros((n_samples, self.n_clusters))
+                for j in range(self.n_clusters):
+                    # 加权 Manhattan 距离
+                    diff = np.abs(X - M[j])
+                    dist_matrix[:, j] = np.sum(diff * weights, axis=1)
+
+                Q = np.argmin(dist_matrix, axis=1)
+
+                if not np.array_equal(Q, Q_prime):
+                    Q_prime = Q.copy()
+                    cur_step = 4
+                else:
+                    cur_step = 5
+
+            # =======================
+            # Step 4：固定Q、w，更新簇中心M (Eq. 2)
+            # =======================
+            elif cur_step == 4:
+                for j in range(self.n_clusters):
+                    points = X[Q == j]
+                    if len(points) > 0:
+                        M[j] = np.mean(points, axis=0)
+                cur_step = 3
+
+            # =======================
+            # Step 5: 固定M、Q，计算权重w (HARR-V, Eq. 15-18)
+            # =======================
+            elif cur_step == 5:
+                if not np.array_equal(Q, Q_double_prime):
+                    Q_double_prime = Q.copy()
+
+                    diff_all = np.abs(X[:, np.newaxis, :] - M[np.newaxis, :, :])
+                    # labels_onehot: (n_samples, n_clusters)
+                    labels_onehot = np.eye(self.n_clusters)[Q.astype(int)]
+
+                    # Intra: 只算属于该簇的
+                    # shape: (n_attributes,)
+                    intra_numerator = np.sum(diff_all * labels_onehot[:, :, np.newaxis], axis=(0, 1))
+                    D_r = intra_numerator / n_samples
+
+                    # Inter: 只算不属于该簇的 (平均距离)
+                    inter_numerator = np.sum(diff_all * (1 - labels_onehot[:, :, np.newaxis]), axis=(0, 1))
+                    S_r = inter_numerator / (n_samples * (self.n_clusters - 1))
+
+                    I_r = S_r / (D_r + epsilon)
+                    weights = I_r / np.sum(I_r)
+
+                    cur_step = 3
+                else:
+                    cur_step = -1
+
+        return Q, weights, Q_history, W_history, Z_history
+
     def fitM(self, max_iter=100, epsilon=1e-6):
         if self.X_encoded is None:
             raise ValueError("X_encoded is None. Please preprocess the data first.")
@@ -404,3 +501,118 @@ class HARR:
                     cur_step = -1
 
         return Q, weights
+
+    def fitM_with_history(self, max_iter=100, epsilon=1e-6):
+        if self.X_encoded is None:
+            raise ValueError("X_encoded is None. Please preprocess the data first.")
+
+        n_samples, n_attributes = self.X_encoded.shape
+        random_idx = random.sample(range(n_samples), self.n_clusters)
+        centroids = self.X_encoded.iloc[random_idx].values
+
+        X = self.X_encoded.values
+        M = centroids
+        # 初始化权重矩阵 (n_clusters, n_attributes)
+        weights = np.full((self.n_clusters, n_attributes), 1 / n_attributes)
+
+        Q = np.zeros(n_samples)
+        Q_prime = np.zeros(n_samples)
+        Q_double_prime = np.zeros(n_samples)
+
+        Q_history = []
+        W_history = []
+        Z_history = []
+
+        cur_step = 3
+        iteration_counter = 0
+
+        while cur_step != -1 and iteration_counter < max_iter:
+            iteration_counter += 1
+            # 记录当前迭代的 Q、W、Z
+            Q_history.append(Q.copy())
+            W_history.append(weights.copy())
+            Z_history.append(self.calculate_Z(Q, M, weights))
+
+            # =======================
+            # Step 3: 固定M、W，更新簇标签Q (Eq. 1)
+            # =======================
+            if cur_step == 3:
+                dist_matrix = np.zeros((n_samples, self.n_clusters))
+                for j in range(self.n_clusters):
+                    diff = np.abs(X - M[j])
+                    # 使用对应簇 j 的权重 weights[j]
+                    dist_matrix[:, j] = np.sum(diff * weights[j], axis=1)
+                Q = np.argmin(dist_matrix, axis=1)
+
+                if not np.array_equal(Q, Q_prime):
+                    Q_prime = Q.copy()
+                    cur_step = 4
+                else:
+                    cur_step = 5
+
+            # =======================
+            # Step 4：固定Q、W，更新簇中心M (Eq. 2)
+            # =======================
+            elif cur_step == 4:
+                for j in range(self.n_clusters):
+                    points = X[Q == j]
+                    if len(points) > 0:
+                        M[j] = np.mean(points, axis=0)
+                cur_step = 3
+
+            # =======================
+            # Step 5: 固定M、Q，计算权重矩阵 W (HARR-M, Eq. 19-22)
+            # =======================
+            elif cur_step == 5:
+                if not np.array_equal(Q, Q_double_prime):
+                    Q_double_prime = Q.copy()
+
+                    # diff_all shape: (n_samples, n_clusters, n_attributes)
+                    # diff_all[i, j, k] = |x_i^k - m_j^k|
+                    diff_all = np.abs(X[:, np.newaxis, :] - M[np.newaxis, :, :])
+
+                    for j in range(self.n_clusters):
+                        # -------------------------
+                        # 修正点：D_l (Eq. 21)
+                        # -------------------------
+                        mask_member = (Q == j)
+                        n_member = np.sum(mask_member)
+
+                        if n_member == 0:
+                            # 避免空簇除零，保持原权重或设为均匀
+                            continue
+
+                        # 计算簇内成员到中心 M[j] 的距离总和
+                        # diff_all[mask_member, j, :] 形状 (n_members, n_attributes)
+                        sum_intra = np.sum(diff_all[mask_member, j, :], axis=0)
+                        D_l = sum_intra / n_member
+
+                        # -------------------------
+                        # 修正点：S_l (Eq. 22)
+                        # 逻辑：非成员点到当前中心 M[j] 的平均距离
+                        # -------------------------
+                        mask_non_member = (Q != j)
+                        n_non_member = np.sum(mask_non_member)
+
+                        if n_non_member == 0:
+                            # 极端情况：只有一个簇
+                            S_l = np.zeros(n_attributes)
+                        else:
+                            # 关键修正：取 non_member 到 center j 的距离
+                            sum_inter = np.sum(diff_all[mask_non_member, j, :], axis=0)
+                            S_l = sum_inter / n_non_member
+
+                        # Eq. 20
+                        I_l = S_l / (D_l + epsilon)
+
+                        # Eq. 19
+                        if np.sum(I_l) == 0:
+                            weights[j] = np.ones(n_attributes) / n_attributes
+                        else:
+                            weights[j] = I_l / np.sum(I_l)
+
+                    cur_step = 3
+                else:
+                    cur_step = -1
+
+        return Q, weights, Q_history, W_history, Z_history
