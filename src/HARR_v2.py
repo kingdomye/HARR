@@ -10,7 +10,7 @@ from sklearn.metrics import adjusted_rand_score
 from HARRDataset import HARRDataSet
 
 
-class ImprovedHARR:
+class HARR:
     def __init__(self, X, n_clusters=2, mds_components=2):
         """
         :param X: 输入的DataFrame
@@ -280,7 +280,7 @@ if __name__ == '__main__':
 
         # 实例化改进版 HARR
         # mds_components=2 意味着我们将复杂的类别关系映射到2D平面，足够表达大部分语义
-        optimizer = ImprovedHARR(dataset, n_clusters=2, mds_components=2)
+        optimizer = HARR(dataset, n_clusters=2, mds_components=2)
 
         # 预处理：MDS 替代了原来的暴力展开
         optimizer.preprocess(columns.numerical_columns, columns.categorical_columns)
